@@ -1,43 +1,36 @@
-export default async function handler(req, res) {
-    res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+async function loadLivePmu() {
+    const dateInput = document.getElementById('raceDate').value; // Format AAAA-MM-JJ
+    const statusText = document.getElementById('statusText');
+    statusText.innerHTML = '<span class="text-amber-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Chargement des courses en direct...</span>';
 
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
-
-    const { date } = req.query; // Format attendu: ddmmyyyy
-
-    if (!date) {
-        return res.status(400).json({ error: "Date manquante" });
-    }
+    const parts = dateInput.split('-');
+    const ddmmyyyy = `${parts[2]}${parts[1]}${parts[0]}`;
 
     try {
-        // Vraie API interne du PMU pour récupérer le programme du jour au format JJMMAAAA
-        const pmuApiUrl = `https://online.turf.pmu.fr/client/rest/v1/programme/${date}`;
+        // URL cible officielle du PMU
+        const targetUrl = `https://online.turf.pmu.fr/client/rest/v1/programme/${ddmmyyyy}`;
         
-        const response = await fetch(pmuApiUrl, {
-            headers: {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-                "Accept": "application/json"
-            }
-        });
+        // Utilisation d'un proxy public mondial pour faire transiter la requête sans erreur CORS ni blocage 500
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
         
-        if (!response.ok) {
-            throw new Error(`Erreur PMU ${response.status}`);
+        const response = await fetch(proxyUrl);
+        if (!response.ok) throw new Error("Erreur du service de contournement");
+
+        const proxyData = await response.json();
+        if (!proxyData.contents) throw new Error("Données vides reçues");
+
+        const data = JSON.parse(proxyData.contents);
+
+        if (data && data.programme && data.programme.reunions) {
+            liveMeetingsData = data.programme.reunions;
+            populateMeetingsSelect(liveMeetingsData);
+            statusText.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-check mr-2"></i>Direct PMU actif (${liveMeetingsData.length} réunions).</span>`;
+        } else {
+            throw new Error("Aucune réunion trouvée pour cette date.");
         }
-
-        const data = await response.json();
-        return res.status(200).json(data);
-
-    } catch (error) {
-        // En cas de blocage de l'API mobile, on renvoie une erreur propre avec les détails
-        return res.status(500).json({ 
-            error: "Impossible de joindre l'API officielle PMU du jour", 
-            details: error.message 
-        });
+    } catch (err) {
+        console.error(err);
+        statusText.innerHTML = `<span class="text-red-400 font-bold"><i class="fa-solid fa-triangle-exclamation mr-2"></i>Indisponible pour cette date (Utilisez une date du jour).</span>`;
+        clearDisplay();
     }
 }
